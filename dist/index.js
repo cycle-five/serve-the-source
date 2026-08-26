@@ -1,26 +1,7 @@
-// src/index.ts
 import path from "node:path";
 import fs from "node:fs/promises";
-
-// src/frontmatter.ts
-var BOM = /^﻿/;
-var YAML_FENCE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
-var TOML_FENCE = /^\+\+\+\r?\n([\s\S]*?)\r?\n\+\+\+\r?\n?/;
-function parseFrontmatter(input) {
-  const raw = input.replace(BOM, "");
-  const yaml = YAML_FENCE.exec(raw);
-  if (yaml) {
-    return { body: raw.slice(yaml[0].length).replace(/^\s+/, ""), raw: yaml[1] ?? "", format: "yaml" };
-  }
-  const toml = TOML_FENCE.exec(raw);
-  if (toml) {
-    return { body: raw.slice(toml[0].length).replace(/^\s+/, ""), raw: toml[1] ?? "", format: "toml" };
-  }
-  return { body: raw.replace(/^\s+/, ""), raw: "", format: "none" };
-}
-
-// src/index.ts
-var DEFAULT_ALLOWLIST = ["title", "tags", "date", "description", "aliases"];
+import { parseFrontmatter } from "./frontmatter.js";
+const DEFAULT_ALLOWLIST = ["title", "tags", "date", "description", "aliases"];
 function stripFrontmatter(raw) {
   return parseFrontmatter(raw).body;
 }
@@ -85,7 +66,7 @@ async function emitOne(r, data) {
   await fs.writeFile(out, buildFrontmatter(data.frontmatter ?? {}, r.allowlist, sourceUrl) + body, "utf-8");
   return out;
 }
-var ServeTheSource = (opts) => ({
+const ServeTheSource = (opts) => ({
   name: "ServeTheSource",
   async emit(ctx, content) {
     const r = resolve(opts, ctx);
