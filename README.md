@@ -171,7 +171,7 @@ the thing to redo before changing this.
 
 ```shell
 npm run typecheck   # strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes
-npm test            # 30 cases; the security guards are the first two blocks
+npm test            # 41 cases; the security guards are the first two blocks
 npm run build       # dist/index.js + dist/index.d.ts
 npm run check       # all three
 ```
