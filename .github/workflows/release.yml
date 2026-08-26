@@ -3,10 +3,9 @@ on:
   push:
     tags: ["v*"]
 
-# id-token is what makes provenance possible: npm verifies the OIDC token from
-# this workflow and attaches a signed, publicly verifiable link from the
-# tarball back to this repo and commit. For a module whose whole pitch is "it
-# will not leak your secrets", that attestation is worth more than usual.
+# id-token: write is what makes both provenance AND OIDC trusted publishing
+# possible. npm verifies this token against the trusted-publisher configured on
+# the package (org/repo/workflow), so no NPM_TOKEN is needed at all.
 permissions:
   contents: read
   id-token: write
@@ -22,12 +21,22 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
+      # 🪤 NODE 22 SHIPS npm 10.x, AND OIDC TRUSTED PUBLISHING NEEDS 11.5.1+.
+      # Without this the publish falls back to looking for a token and fails
+      # with an auth error that says nothing about the npm version -- so the
+      # upgrade is explicit rather than inherited from whatever the runner
+      # image happens to have this month.
+      - name: upgrade npm for trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
+
       - run: npm ci
       - run: npm run check
 
-      # The tag is the source of truth for the version. A mismatch means the
-      # tag and the tarball would disagree forever, and npm versions are
-      # immutable -- so refuse rather than publish the wrong number.
+      # The tag is the source of truth for the version. npm versions are
+      # immutable, so a mismatch would mean the tag and the tarball disagree
+      # forever. Refuse rather than publish the wrong number.
       - name: tag must match package.json version
         run: |
           TAG="${GITHUB_REF_NAME#v}"
@@ -37,7 +46,8 @@ jobs:
             exit 1
           fi
 
-      - name: publish with provenance
+      # No NODE_AUTH_TOKEN. Authentication is the OIDC token from `permissions`
+      # above, matched against the package's trusted publisher on npmjs.com.
+      # Provenance is implied by trusted publishing but stated for clarity.
+      - name: publish via trusted publisher
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
