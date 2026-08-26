@@ -1,0 +1,9 @@
+node_modules
+*.tsbuildinfo
+
+# dist/ IS committed, deliberately. Quartz installs plugins straight from a
+# git ref, and its loader prefers a pre-built dist/ ("using pre-built dist/"
+# in its own build log). A repo without one relies on the consumer having dev
+# dependencies available at build time -- which is exactly how this module
+# first failed on Cloudflare Pages, where NODE_ENV=production makes npm ci
+# skip them and the plugin is silently skipped with a warning, not an error.

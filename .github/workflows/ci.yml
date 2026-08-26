@@ -1,0 +1,37 @@
+name: ci
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Typecheck covers src/ AND test/conformance.ts, which imports Quartz's
+      # real types. If Quartz changes QuartzEmitterPlugin, this step fails here
+      # rather than silently in somebody's site build.
+      - name: typecheck (includes Quartz conformance)
+        run: npm run typecheck
+
+      - run: npm test
+
+      # dist/ is committed because Quartz installs from a git ref and prefers a
+      # pre-built dist/. That only helps if it matches src/ -- a stale dist is
+      # worse than none, since it fails silently with old behaviour.
+      - name: build
+        run: npm run build
+      - name: fail if committed dist/ is stale
+        run: |
+          if ! git diff --quiet -- dist; then
+            echo "::error::dist/ is out of date with src/. Run 'npm run build' and commit."
+            git diff --stat -- dist
+            exit 1
+          fi
