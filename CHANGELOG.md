@@ -5,6 +5,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-08-26
+
+### Fixed
+
+- **The README's serving example was wrong for the CLI's default layout.** It
+  built `/about.md` (flat), while `--layout directory` — the default, and what
+  Zola and Hugo need — writes `/about/index.md`. Anyone following the README
+  with default settings would have got a 404 on every page from an otherwise
+  correct build.
+- The same example ignored `q=0`, three lines above guidance saying not to. It
+  now parses the quality value and treats `text/markdown;q=0` as the refusal it
+  is.
+
+### Changed
+
+- Released through npm's OIDC trusted publisher instead of an automation token.
+  There is no longer a publish credential to store, rotate or leak.
+
 ## [0.1.0] — 2026-08-26
 
 First release. Extracted from [cracktun.es](https://cracktun.es), where it has
@@ -49,5 +67,6 @@ been serving Markdown to agents in production since 2026-08-25.
 - Emission is sequential by measurement, not by oversight: 10,000 pages in
   1,008 ms, which is 4.2 ms on a real 38-page site — 0.07% of that build.
 
-[Unreleased]: https://github.com/cycle-five/serve-the-source/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cycle-five/serve-the-source/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/cycle-five/serve-the-source/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/cycle-five/serve-the-source/releases/tag/v0.1.0

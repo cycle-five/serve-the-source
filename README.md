@@ -75,30 +75,55 @@ The emitter writes the files; serving them is one line of edge config. On
 Cloudflare Pages, `functions/_middleware.js`:
 
 ```js
+const MARKDOWN_TYPES = ["text/markdown", "text/x-markdown"]
+
+function wantsMarkdown(accept) {
+  if (!accept) return false
+  for (const part of accept.split(",")) {
+    const [type, ...params] = part.trim().split(";")
+    if (!MARKDOWN_TYPES.includes(type.trim().toLowerCase())) continue
+    const q = params.map((p) => p.trim().toLowerCase()).find((p) => p.startsWith("q="))
+    return !(q && parseFloat(q.slice(2)) === 0)   // q=0 is a refusal, not a request
+  }
+  return false
+}
+
+// Must match the --layout you built with. This is the `directory` default:
+//   content/about.md -> public/about/index.md
+// For `--layout flat`, use `${trimmed || "/index"}.md` instead.
+function sourcePathFor(pathname) {
+  return `${pathname.replace(/\/+$/, "")}/index.md`
+}
+
 export async function onRequest({ request, next, env }) {
   const url = new URL(request.url)
-  const wantsMd = /(^|,)\s*text\/(x-)?markdown\b/.test(request.headers.get("Accept") ?? "")
   const isPage = !/\.[a-z0-9]+$/i.test(url.pathname)
-
-  if (isPage && wantsMd) {
-    const md = new URL(url)
-    md.pathname = `${url.pathname.replace(/\/+$/, "") || "/index"}.md`
-    const hit = await env.ASSETS.fetch(new Request(md, request))
-    if (hit.ok) {
-      const out = new Response(hit.body, hit)
-      out.headers.set("Content-Type", "text/markdown; charset=utf-8")
-      out.headers.append("Vary", "Accept")
-      return out
-    }
+  const withVary = (r) => {
+    const out = new Response(r.body, r)
+    out.headers.append("Vary", "Accept")
+    return out
   }
-  const res = await next()
-  const out = new Response(res.body, res)
+
+  if (!isPage || !wantsMarkdown(request.headers.get("Accept"))) return withVary(await next())
+
+  const md = new URL(url)
+  md.pathname = sourcePathFor(url.pathname)
+  const hit = await env.ASSETS.fetch(new Request(md, request))
+  if (!hit.ok) return withVary(await next())     // no source for this page: serve the HTML
+
+  const out = new Response(hit.body, hit)
+  out.headers.set("Content-Type", "text/markdown; charset=utf-8")
   out.headers.append("Vary", "Accept")
   return out
 }
 ```
 
-Two things that are easy to get wrong there:
+Three things that are easy to get wrong there:
+
+🪤 **`sourcePathFor` must match the `--layout` you built with.** The CLI
+defaults to `directory`, which writes `public/about/index.md` — so appending
+`.md` to the request path 404s on every page. Getting these two out of step is
+the single most likely reason a correct build serves nothing.
 
 🪤 **`Vary: Accept` on *both* branches.** Two different bodies are served from
 one URL. Without it the first cached response is handed to everyone — one

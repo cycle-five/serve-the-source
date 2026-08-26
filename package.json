@@ -1,6 +1,6 @@
 {
   "name": "serve-the-source",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Emit the Markdown source beside every rendered page, and serve it to agents that ask. Zero runtime dependencies.",
   "keywords": [
     "quartz",
