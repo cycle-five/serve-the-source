@@ -205,10 +205,6 @@ async function main(argv) {
     return 1;
   }
 }
-export {
-  main,
-  outputPathFor,
-  parseArgs,
-  run,
-  urlPathFor
-};
+
+// src/bin.ts
+main(process.argv.slice(2)).then((code) => process.exit(code));

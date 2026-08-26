@@ -35,7 +35,7 @@
     "entry": "ServeTheSource"
   },
   "scripts": {
-    "build": "esbuild src/index.ts src/cli.ts --bundle --platform=node --format=esm --packages=external --outdir=dist && tsc --emitDeclarationOnly --declaration --outDir dist -p tsconfig.build.json",
+    "build": "esbuild src/index.ts src/cli.ts src/bin.ts --bundle --platform=node --format=esm --packages=external --outdir=dist && tsc --emitDeclarationOnly --declaration --outDir dist -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "npm run typecheck && npm run test && npm run build && npm run smoke",
@@ -62,7 +62,7 @@
     "url": "git+https://github.com/cycle-five/serve-the-source.git"
   },
   "bin": {
-    "serve-the-source": "./dist/cli.js"
+    "serve-the-source": "./dist/bin.js"
   },
   "engines": {
     "node": ">=18"

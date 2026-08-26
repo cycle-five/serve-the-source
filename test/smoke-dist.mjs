@@ -52,7 +52,32 @@ const written = await fs.readFile(path.join(outDir, "a", "index.md"), "utf-8")
 assert.ok(written.includes("title: A") && written.includes("body"))
 assert.ok(!written.includes("hunter2"))
 
-// 5. The bin shim declared in package.json actually exists.
+// 5. 🚨 EXECUTE the bin THROUGH A SYMLINK, the way npm installs it.
+//    This is not paranoia: the first version guarded self-execution with
+//    `import.meta.url === file://${process.argv[1]}`, which is FALSE through
+//    npm's bin symlink -- import.meta.url resolves the link, argv[1] does not.
+//    The CLI exited 0 having written nothing. No error, no output, no files.
+//    Importing run() directly, as the tests above do, cannot catch that.
+{
+  const { execFileSync, } = await import("node:child_process")
+  const binDir = path.join(dir, "bin")
+  await fs.mkdir(binDir, { recursive: true })
+  const link = path.join(binDir, "serve-the-source")
+  await fs.symlink(new URL("../dist/bin.js", import.meta.url).pathname, link)
+
+  const c2 = path.join(dir, "c2"), o2 = path.join(dir, "o2")
+  await fs.mkdir(c2, { recursive: true })
+  await fs.writeFile(path.join(c2, "page.md"), '+++\ntitle = "P"\n+++\n\nreal body\n')
+
+  const out = execFileSync(process.execPath, [link, "--content", c2, "--out", o2, "--base", "e.com"], {
+    encoding: "utf-8",
+  })
+  assert.match(out, /mirrored into/, "bin produced no output when run through a symlink")
+  const got = await fs.readFile(path.join(o2, "page", "index.md"), "utf-8")
+  assert.ok(got.includes("real body"), "bin wrote no content through a symlink")
+}
+
+// 6. The bin shim declared in package.json actually exists.
 const pkg = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf-8"))
 for (const [name, rel] of Object.entries(pkg.bin ?? {})) {
   await fs.access(new URL(`../${rel}`, import.meta.url))

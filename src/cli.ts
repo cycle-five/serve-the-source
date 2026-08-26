@@ -207,8 +207,3 @@ export async function main(argv: readonly string[]): Promise<number> {
     return 1
   }
 }
-
-// Only run when invoked directly, so the module stays importable for tests.
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
-  main(process.argv.slice(2)).then((c) => process.exit(c))
-}
