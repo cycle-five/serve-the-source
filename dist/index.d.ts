@@ -77,6 +77,12 @@ export interface SourceEmitterFile {
 }
 /** Generators hand emitters `[tree, vfile]` pairs; the tree is unused here. */
 export type SourceEmitterContent = readonly [unknown, SourceEmitterFile];
+/** A watch-mode change event, matching Quartz's `ChangeEvent`. */
+export interface SourceChangeEvent {
+    type: "add" | "change" | "delete";
+    path: string;
+    file?: SourceEmitterFile;
+}
 export interface ServeTheSourceOptions {
     /**
      * Frontmatter keys copied onto emitted files.
@@ -110,7 +116,24 @@ export interface ServeTheSourceOptions {
      */
     includeSourceUrl?: boolean;
 }
+/**
+ * 🚨 THE BOM STRIP IS A SECURITY FIX, not a tidiness one. FRONTMATTER_RE is
+ * anchored at index 0, so a UTF-8 BOM (`﻿`) pushes the opening fence to
+ * index 1 and the match silently fails -- leaving the ENTIRE frontmatter block
+ * in the emitted body, `password` field and all. That defeats the allowlist in
+ * `buildFrontmatter` completely, on a file shape Windows editors produce by
+ * default. Covered by test/emitter.test.ts, "regression: byte order mark".
+ */
 export declare function stripFrontmatter(raw: string): string;
+/**
+ * Normalise a configured base URL to a bare host.
+ *
+ * 🪤 Quartz's convention is a bare host (`baseUrl: cracktun.es`) and its own
+ * CNAME plugin assumes it too -- but operators write the scheme in constantly,
+ * and `https://${baseUrl}` then produces `https://https://host/slug`. Cheap to
+ * absorb, silently wrong if not.
+ */
+export declare function normaliseBaseUrl(baseUrl: string): string;
 /**
  * Quote anything that could change the meaning of a YAML line. Conservative by
  * design — over-quoting a title costs nothing, while under-quoting one that
@@ -134,6 +157,18 @@ export declare function skipReason(data: SourceEmitterFileData, opts: {
 export declare const ServeTheSource: (opts?: ServeTheSourceOptions) => {
     name: string;
     emit(ctx: SourceEmitterCtx, content: readonly SourceEmitterContent[]): Promise<FilePath[]>;
-    partialEmit(): AsyncGenerator<FilePath>;
+    /**
+     * Watch/serve mode: refresh only what changed.
+     *
+     * 🪤 WITHOUT THIS, EDITS GO STALE. A no-op partialEmit means the .md mirrors
+     * keep whatever content they had when the dev server started, so a watch
+     * session serves a document that no longer matches the page beside it.
+     *
+     * Deletes are handled too, and matter more than they look: leaving an
+     * orphaned .md behind means a page removed from the site is still readable
+     * at its old URL by anyone asking for Markdown -- the HTML is gone, the
+     * source is not.
+     */
+    partialEmit(ctx: SourceEmitterCtx, _content: readonly SourceEmitterContent[], _resources: unknown, changeEvents: readonly SourceChangeEvent[]): Promise<FilePath[]>;
 };
 export default ServeTheSource;

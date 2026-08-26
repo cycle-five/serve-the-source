@@ -93,6 +93,22 @@ explicit `text/markdown` counts.
 | `includeUnlisted` | `true` | Emit sources for `unlisted` pages. Their HTML is already served, so this exposes nothing new — set `false` if unlisted means "not trivially harvestable" in your setup. |
 | `includeSourceUrl` | `true` | Add a `source:` field with the page's canonical URL. |
 
+`baseUrl` is normalised, so `example.com`, `https://example.com` and
+`https://example.com/` all produce the same result. Quartz's convention is a
+bare host, but the scheme gets written in often enough that
+`https://${baseUrl}` would otherwise yield `https://https://host/slug`.
+
+## Watch mode
+
+`partialEmit` refreshes only what changed, and **removes the `.md` when a page
+is deleted** — an orphan there means a page removed from the site stays
+readable at its old URL by anyone asking for Markdown, since the HTML is gone
+but the source is not.
+
+Both emit paths share one write function, so the security guards apply
+identically in watch mode. A rebuild that relaxed the encryption check would be
+a leak that only appears while someone is editing.
+
 ## 🚨 Two ways a naive version of this leaks
 
 This is the part worth reading, and the reason the module exists rather than
@@ -135,6 +151,21 @@ That file earned itself on its first run. Quartz types a path as
 perfectly, because brands are erased at runtime — is **not** assignable to its
 emitter contract, and a strict consumer would get a type error. The brands are
 now declared locally to match.
+
+## Performance
+
+Emission is sequential, deliberately. Measured on this machine:
+
+| pages | time | per page |
+|---|---|---|
+| 2,000 | 227 ms | 0.11 ms |
+| 10,000 | 1,008 ms | 0.10 ms |
+
+Linear, and on a real 38-page site that is **4.2 ms — 0.07% of a 6-second
+build**. A concurrency pool would buy under a second on a site nobody has,
+while adding a file-descriptor exhaustion mode nobody would hit in testing.
+If someone turns up with a genuinely enormous site, the measurement above is
+the thing to redo before changing this.
 
 ## Development
 

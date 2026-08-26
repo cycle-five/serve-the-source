@@ -75,6 +75,13 @@ export interface SourceEmitterFile {
 /** Generators hand emitters `[tree, vfile]` pairs; the tree is unused here. */
 export type SourceEmitterContent = readonly [unknown, SourceEmitterFile]
 
+/** A watch-mode change event, matching Quartz's `ChangeEvent`. */
+export interface SourceChangeEvent {
+  type: "add" | "change" | "delete"
+  path: string
+  file?: SourceEmitterFile
+}
+
 export interface ServeTheSourceOptions {
   /**
    * Frontmatter keys copied onto emitted files.
@@ -120,8 +127,28 @@ const DEFAULT_ALLOWLIST: readonly string[] = ["title", "tags", "date", "descript
  */
 const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/
 
+/**
+ * 🚨 THE BOM STRIP IS A SECURITY FIX, not a tidiness one. FRONTMATTER_RE is
+ * anchored at index 0, so a UTF-8 BOM (`﻿`) pushes the opening fence to
+ * index 1 and the match silently fails -- leaving the ENTIRE frontmatter block
+ * in the emitted body, `password` field and all. That defeats the allowlist in
+ * `buildFrontmatter` completely, on a file shape Windows editors produce by
+ * default. Covered by test/emitter.test.ts, "regression: byte order mark".
+ */
 export function stripFrontmatter(raw: string): string {
-  return raw.replace(FRONTMATTER_RE, "").replace(/^\s+/, "")
+  return raw.replace(/^﻿/, "").replace(FRONTMATTER_RE, "").replace(/^\s+/, "")
+}
+
+/**
+ * Normalise a configured base URL to a bare host.
+ *
+ * 🪤 Quartz's convention is a bare host (`baseUrl: cracktun.es`) and its own
+ * CNAME plugin assumes it too -- but operators write the scheme in constantly,
+ * and `https://${baseUrl}` then produces `https://https://host/slug`. Cheap to
+ * absorb, silently wrong if not.
+ */
+export function normaliseBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/\/+$/, "")
 }
 
 /**
@@ -178,45 +205,118 @@ export function skipReason(
   return null
 }
 
+/** Everything the two emit paths need, resolved once from options + ctx. */
+interface Resolved {
+  allowlist: readonly string[]
+  includeUnlisted: boolean
+  includeSourceUrl: boolean
+  baseUrl: string | undefined
+  contentDir: string
+  outDir: string
+}
+
+function resolve(opts: ServeTheSourceOptions | undefined, ctx: SourceEmitterCtx): Resolved {
+  const raw = ctx.cfg?.configuration?.baseUrl
+  return {
+    allowlist: opts?.frontmatterAllowlist ?? DEFAULT_ALLOWLIST,
+    includeUnlisted: opts?.includeUnlisted ?? true,
+    includeSourceUrl: opts?.includeSourceUrl ?? true,
+    baseUrl: raw ? normaliseBaseUrl(raw) : undefined,
+    contentDir: ctx.argv.directory,
+    outDir: ctx.argv.output,
+  }
+}
+
+/**
+ * Write one page's source. Returns the path written, or null if the page was
+ * skipped or unreadable.
+ *
+ * Shared by emit() and partialEmit() on purpose: a watch-mode rebuild that
+ * applied different rules from a full build -- particularly the encryption
+ * guard -- would be a leak that only appears while someone is editing.
+ */
+async function emitOne(r: Resolved, data: SourceEmitterFileData): Promise<FilePath | null> {
+  if (skipReason(data, { includeUnlisted: r.includeUnlisted }) !== null) return null
+  const slug = data.slug as string
+  const relativePath = data.relativePath as string
+
+  let raw: string
+  try {
+    raw = await fs.readFile(path.join(r.contentDir, relativePath), "utf-8")
+  } catch {
+    // A page whose source cannot be read is skipped, not fatal. One unreadable
+    // file must not take a whole site build down with it.
+    return null
+  }
+
+  const body = stripFrontmatter(raw)
+  if (body.trim() === "") return null
+
+  const sourceUrl = !r.includeSourceUrl
+    ? undefined
+    : r.baseUrl
+      ? `https://${r.baseUrl}/${slug}`
+      : `/${slug}`
+
+  const out = path.join(r.outDir, `${slug}.md`)
+  await fs.mkdir(path.dirname(out), { recursive: true })
+  await fs.writeFile(out, buildFrontmatter(data.frontmatter ?? {}, r.allowlist, sourceUrl) + body, "utf-8")
+  return out as FilePath
+}
+
 export const ServeTheSource = (opts?: ServeTheSourceOptions) => ({
   name: "ServeTheSource",
+
   async emit(ctx: SourceEmitterCtx, content: readonly SourceEmitterContent[]): Promise<FilePath[]> {
-    const allowlist = opts?.frontmatterAllowlist ?? DEFAULT_ALLOWLIST
-    const includeUnlisted = opts?.includeUnlisted ?? true
-    const includeSourceUrl = opts?.includeSourceUrl ?? true
-    const baseUrl = ctx.cfg?.configuration?.baseUrl
+    const r = resolve(opts, ctx)
     const emitted: FilePath[] = []
-
+    // Sequential on purpose. Measured at 0.10ms/page over 10,000 pages, which
+    // is 4ms on a 38-page site -- 0.07% of that build. A concurrency pool
+    // would buy under a second on a site nobody has, at the cost of a file
+    // descriptor exhaustion mode nobody would hit in testing.
     for (const [, file] of content) {
-      const data = file?.data ?? {}
-      if (skipReason(data, { includeUnlisted }) !== null) continue
-
-      // skipReason has already established both are present.
-      const slug = data.slug as string
-      const relativePath = data.relativePath as string
-
-      let raw: string
-      try {
-        raw = await fs.readFile(path.join(ctx.argv.directory, relativePath), "utf-8")
-      } catch {
-        // A page whose source cannot be read is skipped, not fatal. One
-        // unreadable file must not take a whole site build down with it.
-        continue
-      }
-
-      const body = stripFrontmatter(raw)
-      if (body.trim() === "") continue
-
-      const sourceUrl =
-        includeSourceUrl && baseUrl ? `https://${baseUrl}/${slug}` : includeSourceUrl ? `/${slug}` : undefined
-      const out = path.join(ctx.argv.output, `${slug}.md`)
-      await fs.mkdir(path.dirname(out), { recursive: true })
-      await fs.writeFile(out, buildFrontmatter(data.frontmatter ?? {}, allowlist, sourceUrl) + body, "utf-8")
-      emitted.push(out as FilePath)
+      const out = await emitOne(r, file?.data ?? {})
+      if (out !== null) emitted.push(out)
     }
     return emitted
   },
-  async *partialEmit(): AsyncGenerator<FilePath> {},
+
+  /**
+   * Watch/serve mode: refresh only what changed.
+   *
+   * 🪤 WITHOUT THIS, EDITS GO STALE. A no-op partialEmit means the .md mirrors
+   * keep whatever content they had when the dev server started, so a watch
+   * session serves a document that no longer matches the page beside it.
+   *
+   * Deletes are handled too, and matter more than they look: leaving an
+   * orphaned .md behind means a page removed from the site is still readable
+   * at its old URL by anyone asking for Markdown -- the HTML is gone, the
+   * source is not.
+   */
+  async partialEmit(
+    ctx: SourceEmitterCtx,
+    _content: readonly SourceEmitterContent[],
+    _resources: unknown,
+    changeEvents: readonly SourceChangeEvent[],
+  ): Promise<FilePath[]> {
+    const r = resolve(opts, ctx)
+    const emitted: FilePath[] = []
+
+    for (const ev of changeEvents) {
+      const data = ev.file?.data
+      if (ev.type === "delete") {
+        // The slug is the only way to know which output to remove; without one
+        // there is nothing to do.
+        if (!data?.slug) continue
+        await fs.rm(path.join(r.outDir, `${data.slug}.md`), { force: true })
+        continue
+      }
+      if (!data) continue
+      const out = await emitOne(r, data)
+      if (out !== null) emitted.push(out)
+    }
+    return emitted
+  },
 })
 
 export default ServeTheSource

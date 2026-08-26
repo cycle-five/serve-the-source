@@ -296,3 +296,131 @@ describe("buildFrontmatter", () => {
     expect(out).toContain("date: 2026-08-26T12:00:00.000Z")
   })
 })
+
+// ---------------------------------------------------------------------------
+// Regressions from review, 2026-08-26. Each of these failed before its fix.
+// ---------------------------------------------------------------------------
+describe("regression: byte order mark", () => {
+  it("🪤 strips frontmatter from a file that begins with a UTF-8 BOM", () => {
+    // FRONTMATTER_RE is anchored at index 0, so a BOM at position 0 pushes the
+    // fence to index 1 and the match fails -- silently leaving the WHOLE
+    // frontmatter block, password field included, in the emitted body. Windows
+    // editors write BOMs by default, so this is a normal file, not a weird one.
+    const withBom = "﻿---\ntitle: T\npassword: hunter2\n---\n\n# Body\n"
+    const out = stripFrontmatter(withBom)
+    expect(out).not.toContain("password")
+    expect(out).not.toContain("hunter2")
+    expect(out.startsWith("# Body")).toBe(true)
+  })
+
+  it("a BOM'd encrypted-adjacent file cannot leak its frontmatter through the emitter", async () => {
+    await writeSource("bom.md", "﻿---\ntitle: T\npassword: hunter2\n---\n\n# Body\n")
+    await ServeTheSource().emit(ctx(), [
+      page({ slug: "bom", relativePath: "bom.md", frontmatter: { title: "T", password: "hunter2" } }),
+    ])
+    expect(await read("bom")).not.toContain("hunter2")
+  })
+})
+
+describe("regression: baseUrl carrying a protocol", () => {
+  it("🪤 does not double the scheme when baseUrl already has one", async () => {
+    // Quartz's convention is a bare host (`baseUrl: cracktun.es`) and its own
+    // CNAME plugin assumes the same. But operators write the protocol in
+    // constantly, and `https://${baseUrl}` then yields https://https://host/p.
+    await writeSource("p.md", "body\n")
+    await ServeTheSource().emit(
+      { argv: { directory: contentDir, output: outDir }, cfg: { configuration: { baseUrl: "https://example.com" } } },
+      [page({ slug: "p", relativePath: "p.md" })],
+    )
+    const out = await read("p")
+    expect(out).toContain("source: https://example.com/p")
+    expect(out).not.toContain("https://https://")
+  })
+
+  it("handles a http:// prefix and a trailing slash too", async () => {
+    await writeSource("p.md", "body\n")
+    await ServeTheSource().emit(
+      { argv: { directory: contentDir, output: outDir }, cfg: { configuration: { baseUrl: "http://example.com/" } } },
+      [page({ slug: "p", relativePath: "p.md" })],
+    )
+    expect(await read("p")).toContain("source: https://example.com/p")
+  })
+})
+
+describe("partialEmit (watch mode)", () => {
+  it("refreshes a changed page's source", async () => {
+    await writeSource("p.md", "original\n")
+    const plugin = ServeTheSource()
+    await plugin.emit(ctx(), [page({ slug: "p", relativePath: "p.md" })])
+    expect(await read("p")).toContain("original")
+
+    await writeSource("p.md", "edited\n")
+    const out = await plugin.partialEmit(ctx(), [], null, [
+      { type: "change", path: "p.md", file: { data: { slug: "p", relativePath: "p.md" } } },
+    ])
+    expect(out).toHaveLength(1)
+    expect(await read("p")).toContain("edited")
+    expect(await read("p")).not.toContain("original")
+  })
+
+  it("emits a newly added page", async () => {
+    await writeSource("new.md", "fresh\n")
+    const out = await ServeTheSource().partialEmit(ctx(), [], null, [
+      { type: "add", path: "new.md", file: { data: { slug: "new", relativePath: "new.md" } } },
+    ])
+    expect(out).toHaveLength(1)
+    expect(await read("new")).toContain("fresh")
+  })
+
+  it("🪤 removes the orphaned .md when a page is deleted", async () => {
+    // Leaving it behind means a page removed from the site stays readable at
+    // its old URL by anyone asking for Markdown: the HTML is gone, the source
+    // is not.
+    await writeSource("gone.md", "doomed\n")
+    const plugin = ServeTheSource()
+    await plugin.emit(ctx(), [page({ slug: "gone", relativePath: "gone.md" })])
+    expect(await exists("gone")).toBe(true)
+
+    await plugin.partialEmit(ctx(), [], null, [
+      { type: "delete", path: "gone.md", file: { data: { slug: "gone", relativePath: "gone.md" } } },
+    ])
+    expect(await exists("gone")).toBe(false)
+  })
+
+  it("deleting a page that was never emitted is not an error", async () => {
+    await expect(
+      ServeTheSource().partialEmit(ctx(), [], null, [
+        { type: "delete", path: "never.md", file: { data: { slug: "never" } } },
+      ]),
+    ).resolves.toEqual([])
+  })
+
+  it("🚨 applies the encryption guard on the watch path too", async () => {
+    // A watch rebuild that applied different rules from a full build would be
+    // a leak that only appears while someone is editing.
+    await writeSource("s.md", "---\npassword: hunter2\n---\n\nCANARY-PLAINTEXT\n")
+    const out = await ServeTheSource().partialEmit(ctx(), [], null, [
+      { type: "change", path: "s.md", file: { data: { slug: "s", relativePath: "s.md", encrypted: true } } },
+    ])
+    expect(out).toEqual([])
+    expect(await exists("s")).toBe(false)
+  })
+
+  it("🚨 applies the frontmatter allowlist on the watch path too", async () => {
+    await writeSource("s.md", "---\ntitle: T\npassword: hunter2\n---\n\nbody\n")
+    await ServeTheSource().partialEmit(ctx(), [], null, [
+      {
+        type: "change",
+        path: "s.md",
+        file: { data: { slug: "s", relativePath: "s.md", frontmatter: { title: "T", password: "hunter2" } } },
+      },
+    ])
+    expect(await read("s")).not.toContain("hunter2")
+  })
+
+  it("ignores events carrying no file data", async () => {
+    await expect(
+      ServeTheSource().partialEmit(ctx(), [], null, [{ type: "change", path: "x.md" }]),
+    ).resolves.toEqual([])
+  })
+})
