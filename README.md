@@ -44,7 +44,30 @@ plugins:
     options: {}
 ```
 
-Or from a local checkout, `- source: ./plugins/serve-the-source`.
+Or from a git ref: `- source: github:cycle-five/serve-the-source`.
+
+### Without Quartz
+
+Generators without a plugin API — Zola, Hugo, hand-rolled static sites — get a
+CLI that walks the content directory and mirrors each source into the build
+output:
+
+```shell
+npx serve-the-source --content content --out public --base example.com
+```
+
+🪤 **`--layout` is not cosmetic.** Zola renders `content/about.md` to
+`public/about/index.html`, so the source belongs at `public/about/index.md`.
+That is `--layout directory`, the default. `--layout flat` writes
+`public/about.md` instead. Getting it wrong puts every file where nothing will
+look for it.
+
+Both YAML (`---`) and TOML (`+++`) frontmatter are handled, since Quartz and
+Jekyll chose one and Zola and Hugo chose the other. **Drafts are skipped**
+(`draft`/`private`/`unpublished` = true): a page that is not published must not
+have its source published either.
+
+Run `npx serve-the-source --help` for the rest.
 
 ## Serving it
 
@@ -171,10 +194,17 @@ the thing to redo before changing this.
 
 ```shell
 npm run typecheck   # strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes
-npm test            # 41 cases; the security guards are the first two blocks
+npm test            # 67 cases; the security guards are the first two blocks
+npm run smoke       # exercises the BUILT dist/, not src/
 npm run build       # dist/index.js + dist/index.d.ts
 npm run check       # all three
 ```
+
+🪤 **The unit tests import `src/`, but the tarball ships `dist/`.** They are
+different files, so a green suite proves nothing about what a user installs — a
+bundler misconfiguration, a broken `exports` map or a missing `bin` shim all
+pass the unit tests and break on install. `npm run smoke` exercises the built
+artifact the way a consumer would, and CI runs it after the build.
 
 `dist/` is committed on purpose. Quartz installs plugins straight from a git
 ref and its loader prefers a pre-built `dist/`. A repo without one relies on

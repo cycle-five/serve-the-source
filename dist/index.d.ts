@@ -117,12 +117,11 @@ export interface ServeTheSourceOptions {
     includeSourceUrl?: boolean;
 }
 /**
- * 🚨 THE BOM STRIP IS A SECURITY FIX, not a tidiness one. FRONTMATTER_RE is
- * anchored at index 0, so a UTF-8 BOM (`﻿`) pushes the opening fence to
- * index 1 and the match silently fails -- leaving the ENTIRE frontmatter block
- * in the emitted body, `password` field and all. That defeats the allowlist in
- * `buildFrontmatter` completely, on a file shape Windows editors produce by
- * default. Covered by test/emitter.test.ts, "regression: byte order mark".
+ * Remove a leading frontmatter block, whichever fence style it uses.
+ *
+ * Delegates to the shared parser so the emitter and the CLI cannot diverge on
+ * BOM handling or on TOML (`+++`) versus YAML (`---`) fences — a divergence
+ * would mean one path leaks a frontmatter block the other strips.
  */
 export declare function stripFrontmatter(raw: string): string;
 /**

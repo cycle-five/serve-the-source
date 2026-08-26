@@ -19,7 +19,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    }
   },
   "files": [
     "dist",
@@ -31,10 +35,11 @@
     "entry": "ServeTheSource"
   },
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/index.js && tsc --emitDeclarationOnly --declaration --outDir dist -p tsconfig.build.json",
+    "build": "esbuild src/index.ts src/cli.ts --bundle --platform=node --format=esm --packages=external --outdir=dist && tsc --emitDeclarationOnly --declaration --outDir dist -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run test && npm run build"
+    "check": "npm run typecheck && npm run test && npm run build && npm run smoke",
+    "smoke": "node test/smoke-dist.mjs"
   },
   "peerDependencies": {
     "@quartz-community/types": ">=0.2"
@@ -55,5 +60,15 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cycle-five/serve-the-source.git"
-  }
+  },
+  "bin": {
+    "serve-the-source": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "bugs": {
+    "url": "https://github.com/cycle-five/serve-the-source/issues"
+  },
+  "homepage": "https://github.com/cycle-five/serve-the-source#readme"
 }

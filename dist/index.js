@@ -1,10 +1,28 @@
 // src/index.ts
 import path from "node:path";
 import fs from "node:fs/promises";
+
+// src/frontmatter.ts
+var BOM = /^﻿/;
+var YAML_FENCE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+var TOML_FENCE = /^\+\+\+\r?\n([\s\S]*?)\r?\n\+\+\+\r?\n?/;
+function parseFrontmatter(input) {
+  const raw = input.replace(BOM, "");
+  const yaml = YAML_FENCE.exec(raw);
+  if (yaml) {
+    return { body: raw.slice(yaml[0].length).replace(/^\s+/, ""), raw: yaml[1] ?? "", format: "yaml" };
+  }
+  const toml = TOML_FENCE.exec(raw);
+  if (toml) {
+    return { body: raw.slice(toml[0].length).replace(/^\s+/, ""), raw: toml[1] ?? "", format: "toml" };
+  }
+  return { body: raw.replace(/^\s+/, ""), raw: "", format: "none" };
+}
+
+// src/index.ts
 var DEFAULT_ALLOWLIST = ["title", "tags", "date", "description", "aliases"];
-var FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
 function stripFrontmatter(raw) {
-  return raw.replace(/^﻿/, "").replace(FRONTMATTER_RE, "").replace(/^\s+/, "");
+  return parseFrontmatter(raw).body;
 }
 function normaliseBaseUrl(baseUrl) {
   return baseUrl.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/\/+$/, "");

@@ -7,27 +7,36 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
 
-      # Typecheck covers src/ AND test/conformance.ts, which imports Quartz's
-      # real types. If Quartz changes QuartzEmitterPlugin, this step fails here
-      # rather than silently in somebody's site build.
+      # Covers src/ AND test/conformance.ts, which imports Quartz's real types.
+      # If Quartz changes QuartzEmitterPlugin this fails here, rather than
+      # silently in somebody's site build.
       - name: typecheck (includes Quartz conformance)
         run: npm run typecheck
 
       - run: npm test
+      - run: npm run build
 
-      # dist/ is committed because Quartz installs from a git ref and prefers a
-      # pre-built dist/. That only helps if it matches src/ -- a stale dist is
-      # worse than none, since it fails silently with old behaviour.
-      - name: build
-        run: npm run build
+      # The unit tests import src/; the tarball ships dist/. A bundler
+      # misconfiguration, a broken exports map or a missing bin shim all pass
+      # the unit tests and break on install. This exercises the built artifact.
+      - name: smoke test the shipped dist/
+        run: npm run smoke
+
+      # dist/ is committed so Quartz can install straight from a git ref. That
+      # only helps if it matches src/ -- a stale dist is worse than none, since
+      # it fails silently with old behaviour.
       - name: fail if committed dist/ is stale
         run: |
           if ! git diff --quiet -- dist; then
@@ -35,3 +44,6 @@ jobs:
             git diff --stat -- dist
             exit 1
           fi
+
+      - name: verify the publish tarball contents
+        run: npm pack --dry-run
