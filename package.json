@@ -62,7 +62,7 @@
     "url": "git+https://github.com/cycle-five/serve-the-source.git"
   },
   "bin": {
-    "serve-the-source": "./dist/bin.js"
+    "serve-the-source": "dist/bin.js"
   },
   "engines": {
     "node": ">=18"
